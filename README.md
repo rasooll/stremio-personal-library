@@ -8,9 +8,10 @@ A small self-hosted Stremio add-on that scans existing movie, series, episode, a
 - Standard IMDb IDs so streams can appear beside Cinemeta content
 - Recursive, read-only, incremental scanning with missing-file detection
 - Filename parsing for common movie and episode release names
-- TMDB candidate scoring before optional AI disambiguation
+- TMDB candidate scoring, optional AI disambiguation, and AI-assisted fallback searches
 - Authentik OIDC-protected React administration UI
 - Manual mapping and override protection across rescans
+- Match confidence scores and a low-confidence review filter
 - SQLite migrations, scan history, request metrics, Docker deployment, and health checks
 
 ## Architecture
@@ -43,7 +44,7 @@ The external media server must support the HTTP behavior required by Stremio, in
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the required values. Do not commit `.env`.
+Copy `.env.example` to `.env` and set the required values. The application loads this file automatically for local server and migration commands. Never commit `.env` or any environment-specific variant such as `.env.production`.
 
 | Variable | Purpose |
 | --- | --- |
@@ -64,6 +65,12 @@ Copy `.env.example` to `.env` and set the required values. Do not commit `.env`.
 | `OPENAI_MODEL` | Model name accepted by the configured service |
 
 OIDC is mandatory when `NODE_ENV=production`. In development only, an intentionally explicit local administrator session is used when OIDC is not configured.
+
+Generate a unique production session secret rather than using the placeholder from `.env.example`:
+
+```bash
+openssl rand -base64 48
+```
 
 ## Local Development
 
@@ -133,9 +140,12 @@ Create a TMDB API key at [themoviedb.org](https://www.themoviedb.org/settings/ap
 4. Existing local media metadata
 5. TMDB search with title/year scoring
 6. Optional AI selection among supplied TMDB candidates
-7. Unresolved manual review
+7. Optional AI title/year correction followed by one additional TMDB search
+8. Unresolved manual review
 
-AI is disabled by default. When enabled, it receives only the filename, parent names, parsed fields, and a compact candidate list. It may select only a supplied candidate ID. If the initial TMDB search is insufficient, AI may propose a better title and year for one additional TMDB search, but it can never provide the final TMDB or IMDb ID. Invalid, timed-out, invented, or below-threshold responses are rejected. Accepted mappings retain their confidence score; the Admin UI highlights and filters scores below 85% for manual review.
+AI is disabled by default. When enabled, it receives only the filename, parent names, parsed fields, and a compact candidate list. It may select only a supplied candidate ID. If the initial TMDB search is insufficient, AI may propose a better title and year for one additional TMDB search, but it can never provide the final TMDB or IMDb ID. Invalid, timed-out, invented, or below-threshold responses are rejected.
+
+AI matches require at least 65% confidence. Accepted mappings retain their confidence score, and the Admin UI highlights and filters scores below 85% under **Content > Low confidence**. The Dashboard also shows the current low-confidence count.
 
 ## Adding and Scanning a Library
 
@@ -161,7 +171,7 @@ Unchanged files are skipped before parsing or metadata lookup. A second unchange
 
 Open **Unresolved** or **Content**, select a file, and enter an IMDb or TMDB ID. TMDB verifies the identifier and retrieves canonical metadata. Series files also accept season and episode values; subtitle records accept a language code.
 
-Manual mappings are locked and survive rescans. **Re-run automatic matching** explicitly removes that lock and marks the file for matching during the next library update. Confirmation is required before this action and library deletion. No action modifies a media file.
+Manual mappings are locked and survive rescans. **Re-run automatic matching** discards the current automatic or manual database mapping and marks the file for matching during the next library update. This explicit action preserves the guarantee that an ordinary unchanged scan performs no metadata or AI work. Confirmation is required before rematching and library deletion. No action modifies a media file.
 
 ## Installing in Stremio
 
@@ -183,6 +193,26 @@ The add-on exposes **My Movies** and **My Series** catalogs. It also responds to
 
 Only one scan runs at a time. A scan left running during process termination is marked interrupted on the next startup. Structured request logs redact authorization and cookie headers.
 
+## Publishing Safely
+
+The repository is designed to keep runtime state and credentials out of Git:
+
+- `.env`, `.env.*`, `.envrc`, `.direnv/`, `.npmrc`, private key files, `secrets/`, and `credentials/` are ignored.
+- `.env.example` contains placeholders only and is intentionally tracked.
+- SQLite databases, WAL files, logs, build output, coverage, and media data are ignored.
+- `package.json` is marked `private` to prevent accidental npm publication.
+- Docker excludes the same credential files from its build context.
+
+Before making a fork or repository public, run:
+
+```bash
+git status --short
+git ls-files | grep -E '(^|/)(\.env($|\.)|.*\.(pem|key|p12|pfx|db|sqlite|sqlite3)$)'
+npm audit --omit=dev
+```
+
+The second command should print nothing except `.env.example`. If a real credential was ever committed, removing it from the latest commit is not sufficient: revoke it first, then purge it from the full Git history before publishing.
+
 ## Database Backup
 
 SQLite uses WAL mode. For a consistent online backup, use SQLite's backup command against the mounted database:
@@ -200,6 +230,8 @@ Alternatively stop the application and copy `app.db` together with any `app.db-w
 - **Streams return 404:** verify the public base URL and that the external web server mirrors the library's relative paths.
 - **Playback cannot seek:** enable byte-range support on the external media web server.
 - **Everything is unresolved:** configure `TMDB_API_KEY`, inspect parsed fields in **Unresolved**, and verify filename/folder naming.
+- **A previously unresolved file is unchanged:** select it in **Unresolved**, choose **Re-run automatic matching**, then update its library.
+- **Low-confidence matches need review:** use **Content > Low confidence**, edit incorrect mappings, and verify their IMDb or TMDB IDs.
 - **AI request count is unexpectedly high:** check that episodes share a stable show folder and that the first episode established a confident series match.
 - **SQLite is locked:** run only one application instance against the database and ensure the data directory is on a filesystem suitable for SQLite.
 

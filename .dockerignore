@@ -3,4 +3,15 @@ dist
 data
 .git
 .env
+.env.*
+!.env.example
+.envrc
+.direnv
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+secrets
+credentials
 coverage

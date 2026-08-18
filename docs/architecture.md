@@ -21,7 +21,7 @@ flowchart LR
 - A scan is a mark-and-sweep operation. Files are marked seen only after discovery; unseen records become missing only after a successful directory walk.
 - Series metadata is stored once. Episodes remain file mappings with season and episode numbers.
 - Sidecar subtitles are ordinary file records mapped to the same media and episode as their unambiguous video stem.
-- TMDB candidates are scored deterministically. AI can only select an ID from the supplied candidates and cannot introduce metadata identifiers.
+- TMDB candidates are scored deterministically. AI can only select an ID from supplied candidates; when needed, it may suggest a title and year for one additional TMDB search but cannot introduce metadata identifiers.
 - One in-process scan manager serializes all scans. Running scans are marked interrupted during startup.
 
 ## Assumptions
