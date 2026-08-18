@@ -75,6 +75,8 @@ npm run dev
 
 Open `http://localhost:5173/admin/` for the Vite development UI. The Stremio manifest is available from `http://localhost:7000/manifest.json`.
 
+On macOS, AirPlay Receiver may already use port `7000`. If `/health` returns `403 Forbidden` or startup reports `EADDRINUSE`, set `PORT=7001`, update `PUBLIC_ADDON_URL` and `OIDC_REDIRECT_URI` to port `7001`, and use `http://localhost:7001/manifest.json`. The Vite proxy reads `PORT` from `.env` automatically.
+
 Useful commands:
 
 ```bash

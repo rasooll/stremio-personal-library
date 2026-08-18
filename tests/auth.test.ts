@@ -17,4 +17,11 @@ describe('admin authentication', () => {
     const response = await request(app).get('/api/admin/me').expect(401);
     expect(response.body).toEqual({ error: 'Authentication required' });
   });
+
+  it('redirects development login to the Vite-compatible admin path', async () => {
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: ':memory:', PUBLIC_ADDON_URL: 'http://localhost:7000', SESSION_SECRET: '12345678901234567890123456789012' });
+    const app = await createApp(db, config);
+    const response = await request(app).get('/auth/login').expect(302);
+    expect(response.headers.location).toBe('/admin/');
+  });
 });

@@ -13,7 +13,7 @@ export async function configureOidc(app: Express, config: Config): Promise<Reque
 
   app.get('/auth/login', async (req, res, next) => {
     try {
-      if (!oidc) { req.session.user = { sub: 'development', name: 'Local Administrator' }; return res.redirect('/admin'); }
+      if (!oidc) { req.session.user = { sub: 'development', name: 'Local Administrator' }; return res.redirect('/admin/'); }
       const codeVerifier = randomPKCECodeVerifier();
       const state = randomState(); const nonce = randomNonce();
       req.session.oidc = { codeVerifier, state, nonce };
@@ -38,7 +38,7 @@ export async function configureOidc(app: Express, config: Config): Promise<Reque
       req.session.regenerate((error) => {
         if (error) return next(error);
         req.session.user = user;
-        req.session.save((saveError) => saveError ? next(saveError) : res.redirect('/admin'));
+        req.session.save((saveError) => saveError ? next(saveError) : res.redirect('/admin/'));
       });
     } catch (error) { next(error); }
   });
