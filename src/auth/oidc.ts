@@ -47,7 +47,7 @@ export async function configureOidc(app: Express, config: Config): Promise<Reque
 
   return (req, res, next) => {
     if (req.session.user) return next();
-    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Authentication required' });
+    if (req.originalUrl.startsWith('/api/')) return res.status(401).json({ error: 'Authentication required' });
     return res.redirect('/auth/login');
   };
 }

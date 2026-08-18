@@ -3,8 +3,16 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      NODE_ENV: production
     ports:
       - "7000:7000"
     volumes:
       - ./data:/app/data
       - /mnt/media:/media:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:7000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
