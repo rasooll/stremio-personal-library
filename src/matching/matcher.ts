@@ -27,11 +27,11 @@ export class Matcher {
     }
 
     if (!this.tmdb.configured) return false;
-    const candidates = await this.tmdb.search(parsed.type, parsed.title, parsed.year);
+    let candidates = await this.tmdb.search(parsed.type, parsed.title, parsed.year);
     let selected: TmdbCandidate | undefined;
     let method: MatchMethod = 'tmdb';
     let confidence = 0;
-    if (candidates[0] && candidates[0].score >= 0.88 && (!candidates[1] || candidates[0].score - candidates[1].score >= 0.08)) {
+    if (isConfidentCandidate(candidates)) {
       selected = candidates[0]; confidence = selected.score;
     } else if (candidates.length) {
       try {
@@ -41,6 +41,24 @@ export class Matcher {
       } catch (error) {
         this.onError?.(error);
         selected = undefined;
+      }
+    }
+    if (!selected && this.ai.configured) {
+      try {
+        const suggestion = await this.ai.suggestSearch(path.posix.basename(file.relative_path), path.posix.dirname(file.relative_path).split('/'), parsed);
+        if (suggestion && (normalizeTitle(suggestion.title) !== normalizeTitle(parsed.title) || suggestion.year !== parsed.year)) {
+          const improved = await this.tmdb.search(parsed.type, suggestion.title, suggestion.year);
+          candidates = mergeCandidates(candidates, improved);
+          if (isConfidentCandidate(improved)) {
+            selected = improved[0]; method = 'ai'; confidence = Math.min(selected.score, suggestion.confidence);
+          } else if (improved.length) {
+            const choice = await this.ai.choose(path.posix.basename(file.relative_path), path.posix.dirname(file.relative_path).split('/'), parsed, candidates);
+            selected = candidates.find((candidate) => candidate.id === choice?.candidateId);
+            if (selected && choice) { method = 'ai'; confidence = choice.confidence; }
+          }
+        }
+      } catch (error) {
+        this.onError?.(error);
       }
     }
     if (!selected) return false;
@@ -98,4 +116,17 @@ export class Matcher {
     const extraEpisodes = parsed.episodes.filter((episode) => episode !== parsed.episode);
     if (extraEpisodes.length) await this.db('file_mapping_episodes').insert(extraEpisodes.map((episode) => ({ mapping_id: mapping.id, episode })));
   }
+}
+
+function isConfidentCandidate(candidates: TmdbCandidate[]): candidates is [TmdbCandidate, ...TmdbCandidate[]] {
+  return Boolean(candidates[0] && candidates[0].score >= 0.88 && (!candidates[1] || candidates[0].score - candidates[1].score >= 0.08));
+}
+
+function mergeCandidates(original: TmdbCandidate[], improved: TmdbCandidate[]): TmdbCandidate[] {
+  const byId = new Map<number, TmdbCandidate>();
+  for (const candidate of [...original, ...improved]) {
+    const existing = byId.get(candidate.id);
+    if (!existing || candidate.score > existing.score) byId.set(candidate.id, candidate);
+  }
+  return [...byId.values()].sort((left, right) => right.score - left.score);
 }

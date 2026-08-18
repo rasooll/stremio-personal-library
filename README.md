@@ -135,7 +135,7 @@ Create a TMDB API key at [themoviedb.org](https://www.themoviedb.org/settings/ap
 6. Optional AI selection among supplied TMDB candidates
 7. Unresolved manual review
 
-AI is disabled by default. When enabled, it receives only the filename, parent names, parsed fields, and a compact candidate list. It may select only a supplied candidate ID. Invalid, low-confidence, timed-out, or invented responses are rejected.
+AI is disabled by default. When enabled, it receives only the filename, parent names, parsed fields, and a compact candidate list. It may select only a supplied candidate ID. If the initial TMDB search is insufficient, AI may propose a better title and year for one additional TMDB search, but it can never provide the final TMDB or IMDb ID. Invalid, timed-out, invented, or below-threshold responses are rejected. Accepted mappings retain their confidence score; the Admin UI highlights and filters scores below 85% for manual review.
 
 ## Adding and Scanning a Library
 
