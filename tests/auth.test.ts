@@ -34,4 +34,13 @@ describe('admin authentication', () => {
     const rejected = await agent.post('/api/admin/libraries').set('Origin', 'https://untrusted.example').send({}).expect(403);
     expect(rejected.body).toEqual({ error: 'Invalid request origin' });
   });
+
+  it('counts dashboard episodes with SQLite-compatible queries', async () => {
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: ':memory:', PUBLIC_ADDON_URL: 'http://localhost:7001', SESSION_SECRET: '12345678901234567890123456789012' });
+    const app = await createApp(db, config);
+    const agent = request.agent(app);
+    await agent.get('/auth/login').expect(302);
+    const response = await agent.get('/api/admin/dashboard').expect(200);
+    expect(response.body.episodes).toBe(0);
+  });
 });

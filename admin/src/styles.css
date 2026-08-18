@@ -46,6 +46,8 @@ code { color: #c9d1d9; white-space: nowrap; }
 .badge.matched, .badge.completed, .ok { color: #3fb950; }
 .badge.unresolved, .badge.running { color: #d29922; }
 .badge.missing, .badge.failed, .badge.interrupted { color: #f85149; }
+.confidence { display: inline-block; margin-left: .45rem; color: #3fb950; font-variant-numeric: tabular-nums; }
+.confidence.low { color: #d29922; font-weight: 700; }
 .error { padding: .75rem 1rem; border: 1px solid #f85149; color: #ff7b72; background: #2d1117; border-radius: 8px; margin-bottom: 1rem; }
 .scan-summary { display: flex; flex-wrap: wrap; gap: 2rem; }
 .scan-summary span { color: #8b949e; font-size: .8rem; }

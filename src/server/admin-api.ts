@@ -18,9 +18,12 @@ export function registerAdminApi(router: Router, db: Knex, config: Config, scans
   router.get('/dashboard', async (_req, res) => {
     const fileCounts = await db('files').select('file_type', 'status').count<{ count: number }>({ count: '*' }).groupBy('file_type', 'status');
     const mediaCounts = await db('media').select('type').count<{ count: number }>({ count: '*' }).groupBy('type');
-    const episodes = await db('file_mappings').whereNotNull('season').whereNotNull('episode').countDistinct<{ count: number }>({ count: ['media_id', 'season', 'episode'] }).first();
+    const primaryEpisodes = await db('file_mappings').select('media_id', 'season', 'episode').whereNotNull('season').whereNotNull('episode');
+    const extraEpisodes = await db('file_mapping_episodes as fme').select('fm.media_id', 'fm.season', 'fme.episode').join('file_mappings as fm', 'fm.id', 'fme.mapping_id').whereNotNull('fm.season');
+    const episodes = new Set([...primaryEpisodes, ...extraEpisodes].map((row) => `${row.media_id}:${row.season}:${row.episode}`)).size;
+    const lowConfidence = await db('file_mappings as fm').join('files as f', 'f.id', 'fm.file_id').where('f.file_type', 'video').where('f.status', 'matched').where('fm.manual_override', 0).where('fm.confidence', '<', 0.85).count<{ count: number }>({ count: '*' }).first();
     const latestScan = await db('scans').orderBy('started_at', 'desc').first();
-    res.json({ fileCounts, mediaCounts, episodes: Number(episodes?.count ?? 0), latestScan });
+    res.json({ fileCounts, mediaCounts, episodes, lowConfidence: Number(lowConfidence?.count ?? 0), latestScan });
   });
   router.get('/libraries', async (_req, res) => {
     const rows = await db('libraries as l').select('l.*').count<{ file_count: number }>({ file_count: 'f.id' }).leftJoin('files as f', 'f.library_id', 'l.id').groupBy('l.id').orderBy('l.name');
@@ -47,7 +50,8 @@ export function registerAdminApi(router: Router, db: Knex, config: Config, scans
   router.get('/scans/:id', async (req, res) => res.json(await db('scans').where({ id: Number(req.params.id) }).first()));
   router.get('/content', async (req, res) => {
     const query = contentQuery(db);
-    if (req.query.status) query.where('f.status', String(req.query.status));
+    if (req.query.status === 'low-confidence') query.where('f.status', 'matched').where('fm.manual_override', 0).where('fm.confidence', '<', 0.85);
+    else if (req.query.status) query.where('f.status', String(req.query.status));
     if (req.query.type) query.where('m.type', String(req.query.type));
     if (req.query.manual === 'true') query.where('fm.manual_override', 1);
     if (req.query.search) query.where((builder) => builder.whereLike('f.relative_path', `%${String(req.query.search)}%`).orWhereLike('m.title', `%${String(req.query.search)}%`));
