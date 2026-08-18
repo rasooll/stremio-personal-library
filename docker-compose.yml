@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "7000:7000"
+    volumes:
+      - ./data:/app/data
+      - /mnt/media:/media:ro
