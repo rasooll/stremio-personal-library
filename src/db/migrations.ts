@@ -100,4 +100,11 @@ export async function migrate(db: Knex): Promise<void> {
       table.bigInteger('expires_at').notNullable().index();
     });
   }
+  if (!(await db.schema.hasTable('file_mapping_episodes'))) {
+    await db.schema.createTable('file_mapping_episodes', (table) => {
+      table.integer('mapping_id').notNullable().references('id').inTable('file_mappings').onDelete('CASCADE');
+      table.integer('episode').notNullable();
+      table.primary(['mapping_id', 'episode']);
+    });
+  }
 }

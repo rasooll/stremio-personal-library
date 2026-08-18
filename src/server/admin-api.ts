@@ -11,7 +11,7 @@ import { Matcher } from '../matching/matcher.js';
 import { AiResolver } from '../ai/resolver.js';
 
 const librarySchema = z.object({ name: z.string().trim().min(1).max(100), localPath: z.string().trim().min(1), publicBaseUrl: z.string().url().refine((url) => /^https?:/.test(url)), enabled: z.boolean().default(true) });
-const manualSchema = z.object({ type: z.enum(['movie', 'series']), imdbId: z.string().regex(/^tt\d+$/).optional(), tmdbId: z.number().int().positive().optional(), title: z.string().trim().min(1).optional(), year: z.number().int().min(1800).max(2200).nullable().optional(), season: z.number().int().min(0).nullable().optional(), episode: z.number().int().min(0).nullable().optional(), subtitleLanguage: z.string().trim().min(2).max(3).nullable().optional() }).refine((value) => value.imdbId || value.tmdbId, 'IMDb ID or TMDB ID is required');
+const manualSchema = z.object({ type: z.enum(['movie', 'series']), imdbId: z.string().regex(/^tt\d+$/).optional(), tmdbId: z.number().int().positive().optional(), title: z.string().trim().min(1).optional(), year: z.number().int().min(1800).max(2200).nullable().optional(), season: z.number().int().min(0).nullable().optional(), episode: z.number().int().min(0).nullable().optional(), subtitleLanguage: z.string().trim().toLowerCase().regex(/^[a-z]{3}$/).nullable().optional() }).refine((value) => value.imdbId || value.tmdbId, 'IMDb ID or TMDB ID is required');
 
 export function registerAdminApi(router: Router, db: Knex, config: Config, scans: ScanManager) {
   router.get('/me', (req, res) => res.json(req.session.user));
@@ -57,6 +57,8 @@ export function registerAdminApi(router: Router, db: Knex, config: Config, scans
   router.put('/files/:id/mapping', async (req, res) => {
     const input = manualSchema.parse(req.body); const fileId = Number(req.params.id); const file = await db('files').where({ id: fileId }).first();
     if (!file) return res.status(404).json({ error: 'File not found' });
+    if (input.type === 'series' && file.file_type === 'video' && (input.season == null || input.episode == null)) return res.status(400).json({ error: 'Series video mappings require season and episode' });
+    if (file.file_type === 'subtitle' && !input.subtitleLanguage) return res.status(400).json({ error: 'Subtitle mappings require a three-letter language code' });
     if (!config.TMDB_API_KEY) return res.status(503).json({ error: 'TMDB_API_KEY is required to verify manual identifiers' });
     const tmdb = new TmdbClient(config.TMDB_API_KEY);
     const metadata = input.tmdbId ? await tmdb.details(input.type, input.tmdbId) : await tmdb.findByImdb(input.imdbId!, input.type);
@@ -66,7 +68,11 @@ export function registerAdminApi(router: Router, db: Knex, config: Config, scans
     const now = new Date().toISOString();
     const values = { media_id: media.id, season: input.type === 'series' ? input.season ?? null : null, episode: input.type === 'series' ? input.episode ?? null : null, subtitle_language: input.subtitleLanguage ?? null, match_method: 'manual', confidence: 1, manual_override: 1, updated_at: now };
     await db('file_mappings').insert({ file_id: fileId, ...values, created_at: now }).onConflict('file_id').merge(values);
+    const mapping = await db('file_mappings').where({ file_id: fileId }).first();
+    await db('file_mapping_episodes').where({ mapping_id: mapping.id }).delete();
     await db('files').where({ id: fileId }).update({ status: 'matched', unresolved_reason: null, updated_at: now });
+    if (input.type === 'series' && file.file_type === 'video') await applySeriesFolderCorrection(db, file, media.id, now);
+    if (file.file_type === 'video') await updateExactSidecars(db, file, values, now);
     res.json(await contentQuery(db).where('f.id', fileId).first());
   });
   router.post('/files/:id/rematch', async (req, res) => {
@@ -84,3 +90,26 @@ function contentQuery(db: Knex) {
 
 async function validateDirectory(value: string) { const resolved = await realpath(path.resolve(value)); if (!(await stat(resolved)).isDirectory()) throw new Error('Local path is not a directory'); return resolved; }
 function normalizeBaseUrl(value: string) { const url = new URL(value); url.pathname = url.pathname.replace(/\/+$/, ''); return url.toString().replace(/\/$/, ''); }
+
+async function applySeriesFolderCorrection(db: Knex, file: any, mediaId: number, now: string) {
+  const parts = path.posix.dirname(file.relative_path).split('/').filter((part) => part && !/^season[ ._-]*\d+$/i.test(part));
+  const folder = parts.join('/');
+  if (!folder) return;
+  await db('folder_mappings').insert({ library_id: file.library_id, relative_folder: folder, media_id: mediaId, created_at: now }).onConflict(['library_id', 'relative_folder']).merge({ media_id: mediaId });
+  const folderFiles = await db('files').where({ library_id: file.library_id }).whereLike('relative_path', `${folder}/%`).select('id');
+  await db('file_mappings').whereIn('file_id', folderFiles.map((row) => row.id)).where({ manual_override: 0 }).update({ media_id: mediaId, updated_at: now });
+}
+
+async function updateExactSidecars(db: Knex, file: any, videoValues: any, now: string) {
+  const parsed = path.posix.parse(file.relative_path);
+  const candidates = await db('files').where({ library_id: file.library_id, file_type: 'subtitle' }).whereLike('relative_path', `${parsed.dir ? `${parsed.dir}/` : ''}${parsed.name}.%`);
+  for (const subtitle of candidates) {
+    const subtitleMapping = await db('file_mappings').where({ file_id: subtitle.id }).first();
+    if (subtitleMapping?.manual_override) continue;
+    const language = subtitle.parsed_json ? JSON.parse(subtitle.parsed_json).language : null;
+    if (!language) continue;
+    const values = { media_id: videoValues.media_id, season: videoValues.season, episode: videoValues.episode, subtitle_language: language, match_method: 'deterministic', confidence: 1, manual_override: 0, updated_at: now };
+    await db('file_mappings').insert({ file_id: subtitle.id, ...values, created_at: now }).onConflict('file_id').merge(values);
+    await db('files').where({ id: subtitle.id }).update({ status: 'matched', unresolved_reason: null, updated_at: now });
+  }
+}

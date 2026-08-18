@@ -13,11 +13,19 @@ interface DiscoveredFile { relativePath: string; extension: string; fileType: 'v
 export interface ScanCounters {
   discovered: number; analyzed: number; new: number; changed: number; skipped: number; matched: number;
   unresolved: number; missing: number; tmdbRequest: number; aiRequest: number; aiResolved: number; error: number;
+  errors: string[];
 }
 
 export async function scanLibrary(db: Knex, library: LibraryRow, tmdb: TmdbClient, ai: AiResolver, onProgress?: (counters: ScanCounters) => void): Promise<ScanCounters> {
-  const counters: ScanCounters = { discovered: 0, analyzed: 0, new: 0, changed: 0, skipped: 0, matched: 0, unresolved: 0, missing: 0, tmdbRequest: 0, aiRequest: 0, aiResolved: 0, error: 0 };
-  const matcher = new Matcher(db, tmdb, ai);
+  const counters: ScanCounters = { discovered: 0, analyzed: 0, new: 0, changed: 0, skipped: 0, matched: 0, unresolved: 0, missing: 0, tmdbRequest: 0, aiRequest: 0, aiResolved: 0, error: 0, errors: [] };
+  let currentPath = '';
+  const recordError = (error: unknown) => {
+    counters.error += 1;
+    const message = `${currentPath}: ${error instanceof Error ? error.message : String(error)}`;
+    counters.errors.push(message);
+    console.error(JSON.stringify({ scope: 'library-scan', libraryId: library.id, path: currentPath, error: message }));
+  };
+  const matcher = new Matcher(db, tmdb, ai, recordError);
   const scanStarted = new Date().toISOString();
   const root = await realpath(library.local_path);
   const rootStats = await stat(root);
@@ -28,6 +36,7 @@ export async function scanLibrary(db: Knex, library: LibraryRow, tmdb: TmdbClien
   const activeVideos = new Map<string, { file: FileRow; parsed: ReturnType<typeof parseMediaPath> }>();
 
   for (const item of discovered.filter((entry) => entry.fileType === 'video')) {
+    currentPath = item.relativePath;
     try {
       const result = await upsertFile(db, library.id, item, known.get(item.relativePath), scanStarted);
       const parsed = parseMediaPath(item.relativePath);
@@ -37,30 +46,36 @@ export async function scanLibrary(db: Knex, library: LibraryRow, tmdb: TmdbClien
       const matched = await matcher.match(library.id, result.file, parsed);
       await db('files').where({ id: result.file.id }).update({ status: matched ? 'matched' : 'unresolved', parsed_json: JSON.stringify(parsed), unresolved_reason: matched ? null : 'No confident metadata match', updated_at: scanStarted });
       counters[matched ? 'matched' : 'unresolved'] += 1;
-    } catch { counters.error += 1; }
+    } catch (error) {
+      recordError(error);
+      await db('files').where({ library_id: library.id, relative_path: item.relativePath }).update({ status: 'unresolved', unresolved_reason: 'Matching failed; see scan history', updated_at: scanStarted });
+      counters.unresolved += 1;
+    }
     onProgress?.(counters);
   }
 
   for (const item of discovered.filter((entry) => entry.fileType === 'subtitle')) {
+    currentPath = item.relativePath;
     try {
       const result = await upsertFile(db, library.id, item, known.get(item.relativePath), scanStarted);
-      if (result.unchanged) { counters.skipped += 1; continue; }
-      counters.analyzed += 1; counters[result.isNew ? 'new' : 'changed'] += 1;
       const parsed = parseSubtitlePath(item.relativePath);
       const video = findSidecar(item.relativePath, parsed, activeVideos);
       const videoMapping = video ? await db('file_mappings').where({ file_id: video.file.id }).first() : undefined;
+      if (result.unchanged) {
+        if (videoMapping && parsed.language) await syncSubtitleMapping(db, result.file.id, videoMapping, parsed.language);
+        counters.skipped += 1;
+        continue;
+      }
+      counters.analyzed += 1; counters[result.isNew ? 'new' : 'changed'] += 1;
       if (!video || !videoMapping || !parsed.language) {
         await db('files').where({ id: result.file.id }).update({ status: 'unresolved', parsed_json: JSON.stringify(parsed), unresolved_reason: !parsed.language ? 'Subtitle language is unknown' : 'No unambiguous sidecar video', updated_at: scanStarted });
         counters.unresolved += 1;
       } else {
-        const now = new Date().toISOString();
-        const values = { media_id: videoMapping.media_id, season: videoMapping.season, episode: videoMapping.episode, subtitle_language: parsed.language, match_method: 'deterministic', confidence: 1, manual_override: false, updated_at: now };
-        const current = await db('file_mappings').where({ file_id: result.file.id }).first();
-        if (!current?.manual_override) await db('file_mappings').insert({ file_id: result.file.id, ...values, created_at: now }).onConflict('file_id').merge(values);
-        await db('files').where({ id: result.file.id }).update({ status: 'matched', parsed_json: JSON.stringify(parsed), unresolved_reason: null, updated_at: now });
+        await syncSubtitleMapping(db, result.file.id, videoMapping, parsed.language);
+        await db('files').where({ id: result.file.id }).update({ status: 'matched', parsed_json: JSON.stringify(parsed), unresolved_reason: null, updated_at: new Date().toISOString() });
         counters.matched += 1;
       }
-    } catch { counters.error += 1; }
+    } catch (error) { recordError(error); }
     onProgress?.(counters);
   }
 
@@ -73,6 +88,18 @@ export async function scanLibrary(db: Knex, library: LibraryRow, tmdb: TmdbClien
   counters.aiResolved = await db('file_mappings').join('files', 'files.id', 'file_mappings.file_id').where('files.library_id', library.id).where('file_mappings.match_method', 'ai').where('file_mappings.updated_at', '>=', scanStarted).count<{ count: number }>({ count: '*' }).first().then((row) => Number(row?.count ?? 0));
   await db('libraries').where({ id: library.id }).update({ last_scanned_at: scanStarted, updated_at: scanStarted });
   return counters;
+}
+
+async function syncSubtitleMapping(db: Knex, fileId: number, videoMapping: any, language: string) {
+  const now = new Date().toISOString();
+  const current = await db('file_mappings').where({ file_id: fileId }).first();
+  if (current?.manual_override) return;
+  const values = { media_id: videoMapping.media_id, season: videoMapping.season, episode: videoMapping.episode, subtitle_language: language, match_method: 'deterministic', confidence: 1, manual_override: false, updated_at: now };
+  await db('file_mappings').insert({ file_id: fileId, ...values, created_at: now }).onConflict('file_id').merge(values);
+  const mapping = await db('file_mappings').where({ file_id: fileId }).first();
+  await db('file_mapping_episodes').where({ mapping_id: mapping.id }).delete();
+  const extras = await db('file_mapping_episodes').where({ mapping_id: videoMapping.id });
+  if (extras.length) await db('file_mapping_episodes').insert(extras.map((extra) => ({ mapping_id: mapping.id, episode: extra.episode })));
 }
 
 async function discover(root: string, directory: string, libraryId: number): Promise<DiscoveredFile[]> {

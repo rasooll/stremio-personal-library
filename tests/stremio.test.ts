@@ -42,4 +42,13 @@ describe('Stremio resources', () => {
     const response = await request(app).get('/meta/series/tt0903747.json').expect(200);
     expect(response.body.meta.videos[0]).toMatchObject({ id: 'tt0903747:2:3', season: 2, episode: 3, available: true });
   });
+
+  it('exposes a multi-episode file for every parsed episode mapping', async () => {
+    const mappings = await db('file_mappings').orderBy('id');
+    await db('file_mapping_episodes').insert(mappings.map((mapping) => ({ mapping_id: mapping.id, episode: 4 })));
+    const stream = await request(app).get('/stream/series/tt0903747:2:4.json').expect(200);
+    expect(stream.body.streams).toHaveLength(1);
+    const meta = await request(app).get('/meta/series/tt0903747.json').expect(200);
+    expect(meta.body.meta.videos).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'tt0903747:2:4' })]));
+  });
 });

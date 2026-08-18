@@ -32,7 +32,7 @@ export class ScanManager {
   }
 
   private update(scanId: number, counters: ScanCounters, status?: string) {
-    const values = Object.fromEntries(Object.entries(counters).map(([key, value]) => [`${key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}_count`, value]));
-    return this.db('scans').where({ id: scanId }).update({ ...values, ...(status ? { status, finished_at: new Date().toISOString() } : {}) });
+    const values = Object.fromEntries(Object.entries(counters).filter(([key]) => key !== 'errors').map(([key, value]) => [`${key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)}_count`, value]));
+    return this.db('scans').where({ id: scanId }).update({ ...values, errors_json: counters.errors.length ? JSON.stringify(counters.errors) : null, ...(status ? { status, finished_at: new Date().toISOString() } : {}) });
   }
 }

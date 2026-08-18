@@ -64,4 +64,19 @@ describe('incremental scanner', () => {
     expect(await db('file_mappings').where({ file_id: file.id }).first()).toMatchObject({ media_id: mediaId, match_method: 'manual', manual_override: 1 });
     expect((await db('files').where({ id: file.id }).first()).status).toBe('matched');
   });
+
+  it('refreshes an unchanged sidecar after its video mapping changes', async () => {
+    await writeFile(path.join(root, 'Movie.2024.mkv'), 'video');
+    await writeFile(path.join(root, 'Movie.2024.en.srt'), 'subtitle');
+    await scanLibrary(db, library, dependencies().tmdb, dependencies().ai);
+    const [video, subtitle] = await db('files').orderBy('file_type', 'desc');
+    const now = new Date().toISOString();
+    const [oldMedia] = await db('media').insert({ type: 'movie', title: 'Old', imdb_id: 'tt1111111', tmdb_id: 1, created_at: now, updated_at: now });
+    const [newMedia] = await db('media').insert({ type: 'movie', title: 'New', imdb_id: 'tt2222222', tmdb_id: 2, created_at: now, updated_at: now });
+    await db('file_mappings').insert([{ file_id: video.id, media_id: newMedia, match_method: 'manual', confidence: 1, manual_override: 1, created_at: now, updated_at: now }, { file_id: subtitle.id, media_id: oldMedia, subtitle_language: 'eng', match_method: 'deterministic', confidence: 1, manual_override: 0, created_at: now, updated_at: now }]);
+    await db('files').whereIn('id', [video.id, subtitle.id]).update({ status: 'matched' });
+    const scan = await scanLibrary(db, library, dependencies().tmdb, dependencies().ai);
+    expect(scan).toMatchObject({ analyzed: 0, skipped: 2, tmdbRequest: 0, aiRequest: 0 });
+    expect((await db('file_mappings').where({ file_id: subtitle.id }).first()).media_id).toBe(newMedia);
+  });
 });

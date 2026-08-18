@@ -51,10 +51,15 @@ export function createStremioRouter(db: Knex, config: Config) {
     if (!media) return { meta: {} };
     const meta: any = { ...preview(media, config), background: media.background_url || undefined };
     if (type === 'series') {
-      const episodes = await db('file_mappings as fm').distinct('fm.season', 'fm.episode')
+      const primaryEpisodes = await db('file_mappings as fm').distinct('fm.season', 'fm.episode')
         .join('files as f', 'f.id', 'fm.file_id').join('libraries as l', 'l.id', 'f.library_id')
         .where('fm.media_id', media.id).where('f.file_type', 'video').where('f.status', 'matched').where('l.enabled', 1)
         .whereNotNull('fm.season').whereNotNull('fm.episode').orderBy(['fm.season', 'fm.episode']);
+      const extraEpisodes = await db('file_mapping_episodes as fme').distinct('fm.season', 'fme.episode')
+        .join('file_mappings as fm', 'fm.id', 'fme.mapping_id').join('files as f', 'f.id', 'fm.file_id').join('libraries as l', 'l.id', 'f.library_id')
+        .where('fm.media_id', media.id).where('f.file_type', 'video').where('f.status', 'matched').where('l.enabled', 1).whereNotNull('fm.season');
+      const episodes = [...new Map([...primaryEpisodes, ...extraEpisodes].map((episode) => [`${episode.season}:${episode.episode}`, episode])).values()]
+        .sort((left, right) => left.season - right.season || left.episode - right.episode);
       meta.videos = episodes.map((episode) => ({
         id: `${media.imdb_id}:${episode.season}:${episode.episode}`,
         title: `S${String(episode.season).padStart(2, '0')}E${String(episode.episode).padStart(2, '0')}`,
@@ -125,7 +130,9 @@ function mappedFiles(db: Knex, imdbId: string, fileType: string, season: number 
   const query = db('file_mappings as fm').select('f.id as file_id', 'f.relative_path', 'f.size', 'fm.subtitle_language', 'l.public_base_url')
     .join('files as f', 'f.id', 'fm.file_id').join('media as m', 'm.id', 'fm.media_id').join('libraries as l', 'l.id', 'f.library_id')
     .where('m.imdb_id', imdbId).where('f.file_type', fileType).where('f.status', 'matched').where('l.enabled', 1);
-  if (season !== null) query.where('fm.season', season).where('fm.episode', episode);
+  if (season !== null) query.where('fm.season', season).where((builder) => builder.where('fm.episode', episode).orWhereExists(function extraEpisode() {
+    this.select(db.raw('1')).from('file_mapping_episodes as fme').whereRaw('fme.mapping_id = fm.id').where('fme.episode', episode);
+  }));
   else query.whereNull('fm.season').whereNull('fm.episode');
   return query.orderBy('f.relative_path');
 }

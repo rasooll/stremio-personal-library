@@ -7,7 +7,7 @@ import { TmdbClient, type TmdbCandidate, type TmdbMetadata } from '../metadata/t
 import { AiResolver } from '../ai/resolver.js';
 
 export class Matcher {
-  constructor(private db: Knex, private tmdb: TmdbClient, private ai: AiResolver) {}
+  constructor(private db: Knex, private tmdb: TmdbClient, private ai: AiResolver, private onError?: (error: unknown) => void) {}
 
   async match(libraryId: number, file: FileRow, parsed: ParsedMedia): Promise<boolean> {
     const existingMapping = await this.db('file_mappings').where({ file_id: file.id }).first();
@@ -38,7 +38,8 @@ export class Matcher {
         const choice = await this.ai.choose(path.posix.basename(file.relative_path), path.posix.dirname(file.relative_path).split('/'), parsed, candidates);
         selected = candidates.find((candidate) => candidate.id === choice?.candidateId);
         if (selected && choice) { method = 'ai'; confidence = choice.confidence; }
-      } catch {
+      } catch (error) {
+        this.onError?.(error);
         selected = undefined;
       }
     }
@@ -92,5 +93,9 @@ export class Matcher {
     const now = new Date().toISOString();
     const values = { media_id: mediaId, season: parsed.season, episode: parsed.episode, match_method: method, confidence, manual_override: false, updated_at: now };
     await this.db('file_mappings').insert({ file_id: fileId, ...values, created_at: now }).onConflict('file_id').merge(values);
+    const mapping = await this.db('file_mappings').where({ file_id: fileId }).first();
+    await this.db('file_mapping_episodes').where({ mapping_id: mapping.id }).delete();
+    const extraEpisodes = parsed.episodes.filter((episode) => episode !== parsed.episode);
+    if (extraEpisodes.length) await this.db('file_mapping_episodes').insert(extraEpisodes.map((episode) => ({ mapping_id: mapping.id, episode })));
   }
 }
