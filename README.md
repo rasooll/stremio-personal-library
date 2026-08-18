@@ -51,6 +51,7 @@ Copy `.env.example` to `.env` and set the required values. Do not commit `.env`.
 | `PORT` | Express port, default `7000` |
 | `DATABASE_URL` | SQLite path, default `./data/app.db` |
 | `PUBLIC_ADDON_URL` | Public origin of this application, without `/manifest.json` |
+| `ADMIN_ORIGIN` | Vite Admin UI origin in development, default `http://localhost:5173` |
 | `SESSION_SECRET` | At least 32 random characters used to sign sessions |
 | `OIDC_ISSUER_URL` | Authentik provider issuer URL |
 | `OIDC_CLIENT_ID` | OIDC client ID |

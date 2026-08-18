@@ -8,6 +8,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(7000),
   DATABASE_URL: z.string().default('./data/app.db'),
   PUBLIC_ADDON_URL: z.string().url().default('http://localhost:7000'),
+  ADMIN_ORIGIN: optionalUrl,
   SESSION_SECRET: z.string().min(32).default('development-only-secret-change-me-now'),
   OIDC_ISSUER_URL: optionalUrl,
   OIDC_CLIENT_ID: z.string().default(''),
@@ -33,5 +34,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (value.NODE_ENV === 'production' && !oidcConfigured) {
     throw new Error('OIDC configuration is required in production');
   }
-  return { ...value, databasePath, oidcConfigured };
+  const adminOrigin = value.ADMIN_ORIGIN || 'http://localhost:5173';
+  return { ...value, databasePath, oidcConfigured, adminOrigin };
 }

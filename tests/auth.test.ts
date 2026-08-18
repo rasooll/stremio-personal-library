@@ -24,4 +24,14 @@ describe('admin authentication', () => {
     const response = await request(app).get('/auth/login').expect(302);
     expect(response.headers.location).toBe('/admin/');
   });
+
+  it('allows the configured Vite origin but rejects other mutation origins', async () => {
+    const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: ':memory:', PUBLIC_ADDON_URL: 'http://localhost:7001', ADMIN_ORIGIN: 'http://localhost:5173', SESSION_SECRET: '12345678901234567890123456789012' });
+    const app = await createApp(db, config);
+    const agent = request.agent(app);
+    await agent.get('/auth/login').expect(302);
+    await agent.post('/api/admin/libraries').set('Origin', 'http://localhost:5173').send({}).expect(400);
+    const rejected = await agent.post('/api/admin/libraries').set('Origin', 'https://untrusted.example').send({}).expect(403);
+    expect(rejected.body).toEqual({ error: 'Invalid request origin' });
+  });
 });

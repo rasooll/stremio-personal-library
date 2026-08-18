@@ -32,11 +32,13 @@ export async function createApp(db: Knex, config: Config) {
 
   const requireAuth = await configureOidc(app, config);
   const api = express.Router();
+  const allowedAdminOrigins = new Set([new URL(config.PUBLIC_ADDON_URL).origin]);
+  if (config.NODE_ENV !== 'production') allowedAdminOrigins.add(new URL(config.adminOrigin).origin);
   api.use(requireAuth);
   api.use((req, res, next) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     const origin = req.get('origin');
-    if (origin && origin !== new URL(config.PUBLIC_ADDON_URL).origin) return res.status(403).json({ error: 'Invalid request origin' });
+    if (origin && !allowedAdminOrigins.has(origin)) return res.status(403).json({ error: 'Invalid request origin' });
     next();
   });
   registerAdminApi(api, db, config, new ScanManager(db, config));
