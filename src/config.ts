@@ -31,9 +31,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const oidcConfigured = Boolean(
     value.OIDC_ISSUER_URL && value.OIDC_CLIENT_ID && value.OIDC_CLIENT_SECRET && value.OIDC_REDIRECT_URI,
   );
+  const publicUrl = new URL(value.PUBLIC_ADDON_URL);
+  const isLoopback = ['localhost', '127.0.0.1', '::1'].includes(publicUrl.hostname);
   if (value.NODE_ENV === 'production' && !oidcConfigured) {
     throw new Error('OIDC configuration is required in production');
   }
+  if (value.NODE_ENV === 'production' && publicUrl.protocol !== 'https:' && !isLoopback) {
+    throw new Error('PUBLIC_ADDON_URL must use HTTPS in production unless it targets loopback');
+  }
   const adminOrigin = value.ADMIN_ORIGIN || 'http://localhost:5173';
-  return { ...value, databasePath, oidcConfigured, adminOrigin };
+  return { ...value, databasePath, oidcConfigured, adminOrigin, secureCookies: publicUrl.protocol === 'https:' };
 }

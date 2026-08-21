@@ -15,12 +15,19 @@ export async function createApp(db: Knex, config: Config) {
   const app = express();
   const pinoHttp = pinoHttpImport as unknown as (options: Record<string, unknown>) => express.Handler;
   app.set('trust proxy', 1);
-  app.use(pinoHttp({ redact: ['req.headers.authorization', 'req.headers.cookie'] }));
+  app.use(pinoHttp({
+    redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.location', "res.headers['set-cookie']"],
+    serializers: {
+      req(request: any) {
+        return { method: request.method, url: String(request.url ?? '').split('?')[0], remoteAddress: request.remoteAddress };
+      },
+    },
+  }));
   app.use(express.json({ limit: '100kb' }));
   app.use(session({
     name: 'stremio-admin', secret: config.SESSION_SECRET, resave: false, saveUninitialized: false,
     store: new SqliteSessionStore(db),
-    cookie: { httpOnly: true, secure: config.NODE_ENV === 'production', sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 },
+    cookie: { httpOnly: true, secure: config.secureCookies, sameSite: 'lax', maxAge: 8 * 60 * 60 * 1000 },
   }));
 
   app.get('/health', async (_req, res) => {

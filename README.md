@@ -145,7 +145,7 @@ Terminate TLS at a reverse proxy and forward the original protocol. Express trus
 6. Set `OIDC_ISSUER_URL` to the provider issuer shown by Authentik. It commonly resembles `https://auth.example.com/application/o/stremio-library/`.
 7. Set the client ID, client secret, callback URL, and a strong `SESSION_SECRET`, then restart the application.
 
-The server uses discovery, Authorization Code flow, PKCE, state, nonce, validated ID-token claims, server-side sessions, and `HttpOnly`, `SameSite=Lax` cookies. Cookies are `Secure` in production. Access tokens are not stored in browser storage.
+The server uses discovery, Authorization Code flow, PKCE, state, nonce, validated ID-token claims, server-side sessions, and `HttpOnly`, `SameSite=Lax` cookies. Session cookies are `Secure` whenever `PUBLIC_ADDON_URL` uses HTTPS. Production HTTP is rejected except for loopback-only testing. Access tokens are not stored in browser storage, and callback query parameters are omitted from request logs.
 
 ## TMDB and AI Matching
 

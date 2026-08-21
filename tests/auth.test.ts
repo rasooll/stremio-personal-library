@@ -11,6 +11,13 @@ beforeEach(async () => { db = await createDatabase(':memory:'); });
 afterEach(async () => { await db.destroy(); });
 
 describe('admin authentication', () => {
+  it('derives secure cookies from the public URL protocol', () => {
+    const base = { DATABASE_URL: ':memory:', SESSION_SECRET: '12345678901234567890123456789012', OIDC_ISSUER_URL: 'https://auth.example/issuer', OIDC_CLIENT_ID: 'client', OIDC_CLIENT_SECRET: 'secret', OIDC_REDIRECT_URI: 'https://app.example/auth/callback' };
+    expect(loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'https://app.example' }).secureCookies).toBe(true);
+    expect(loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'http://localhost:7001', OIDC_REDIRECT_URI: 'http://localhost:7001/auth/callback' }).secureCookies).toBe(false);
+    expect(() => loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'http://app.example' })).toThrow('PUBLIC_ADDON_URL must use HTTPS');
+  });
+
   it('returns JSON 401 for an expired or absent API session', async () => {
     const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: ':memory:', PUBLIC_ADDON_URL: 'http://localhost:7000', SESSION_SECRET: '12345678901234567890123456789012' });
     const app = await createApp(db, config);
