@@ -1,10 +1,16 @@
 {
   "name": "stremio-personal-library",
   "version": "0.1.0",
+  "description": "A self-hosted Stremio add-on for personal movie, series, and subtitle libraries.",
+  "license": "MIT",
+  "keywords": ["stremio", "stremio-addon", "self-hosted", "media-library"],
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
   },
   "scripts": {
     "dev": "concurrently -n server,admin -c blue,magenta \"tsx watch src/server/index.ts\" \"vite --config admin/vite.config.ts\"",

@@ -116,8 +116,8 @@ Compose keeps the application port inside the container at `7000` and publishes 
 
 ```env
 HOST_PORT=7001
-MEDIA_HOST_PATH=/Volumes/Media
-MEDIA_CONTAINER_PATH=/Volumes/Media
+MEDIA_HOST_PATH=/Volumes/MyMedia
+MEDIA_CONTAINER_PATH=/Volumes/MyMedia
 PUBLIC_ADDON_URL=http://localhost:7001
 OIDC_REDIRECT_URI=http://localhost:7001/auth/callback
 ```
@@ -225,7 +225,7 @@ Before making a fork or repository public, run:
 ```bash
 git status --short
 git ls-files | grep -E '(^|/)(\.env($|\.)|.*\.(pem|key|p12|pfx|db|sqlite|sqlite3)$)'
-npm audit --omit=dev
+npm audit
 ```
 
 The second command should print nothing except `.env.example`. If a real credential was ever committed, removing it from the latest commit is not sufficient: revoke it first, then purge it from the full Git history before publishing.
@@ -255,3 +255,7 @@ Alternatively stop the application and copy `app.db` together with any `app.db-w
 ## Future PostgreSQL Migration
 
 Business queries use Knex and SQL-specific setup is contained in the database/migration modules. A future migration should add a PostgreSQL connection configuration and adjust SQLite-only pragmas and migration details. PostgreSQL infrastructure is intentionally not included now; one SQLite-owning application instance is the supported deployment model.
+
+## License
+
+This project is available under the [MIT License](LICENSE).

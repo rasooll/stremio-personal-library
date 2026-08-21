@@ -18,6 +18,12 @@ describe('admin authentication', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'http://app.example' })).toThrow('PUBLIC_ADDON_URL must use HTTPS');
   });
 
+  it('rejects documented placeholder session secrets in production', () => {
+    const base = { NODE_ENV: 'production', DATABASE_URL: ':memory:', PUBLIC_ADDON_URL: 'https://app.example', OIDC_ISSUER_URL: 'https://auth.example/issuer', OIDC_CLIENT_ID: 'client', OIDC_CLIENT_SECRET: 'secret', OIDC_REDIRECT_URI: 'https://app.example/auth/callback' };
+    expect(() => loadConfig({ ...base, SESSION_SECRET: 'replace-with-at-least-32-random-characters' })).toThrow('SESSION_SECRET must be replaced');
+    expect(() => loadConfig({ ...base, SESSION_SECRET: 'development-only-secret-change-me-now' })).toThrow('SESSION_SECRET must be replaced');
+  });
+
   it('returns JSON 401 for an expired or absent API session', async () => {
     const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: ':memory:', PUBLIC_ADDON_URL: 'http://localhost:7000', SESSION_SECRET: '12345678901234567890123456789012' });
     const app = await createApp(db, config);

@@ -2,6 +2,10 @@ import path from 'node:path';
 import { z } from 'zod';
 
 const optionalUrl = z.string().url().or(z.literal('')).default('');
+const unsafeSessionSecrets = new Set([
+  'development-only-secret-change-me-now',
+  'replace-with-at-least-32-random-characters',
+]);
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -35,6 +39,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const isLoopback = ['localhost', '127.0.0.1', '::1'].includes(publicUrl.hostname);
   if (value.NODE_ENV === 'production' && !oidcConfigured) {
     throw new Error('OIDC configuration is required in production');
+  }
+  if (value.NODE_ENV === 'production' && unsafeSessionSecrets.has(value.SESSION_SECRET)) {
+    throw new Error('SESSION_SECRET must be replaced with a unique secret in production');
   }
   if (value.NODE_ENV === 'production' && publicUrl.protocol !== 'https:' && !isLoopback) {
     throw new Error('PUBLIC_ADDON_URL must use HTTPS in production unless it targets loopback');
