@@ -1,6 +1,7 @@
 services:
   app:
-    build: .
+    image: ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG:-v0.1.0}
+    pull_policy: always
     restart: unless-stopped
     env_file: .env
     environment:
