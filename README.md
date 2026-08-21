@@ -52,7 +52,7 @@ Copy `.env.example` to `.env` and set the required values. The application loads
 | `PORT` | Express port, default `7000` |
 | `HOST_PORT` | Host port published by Docker Compose, default `7000` |
 | `DOCKER_NODE_ENV` | Container mode used by Compose, default `production` |
-| `IMAGE_TAG` | GHCR image version used by Compose, default `v0.1.1` |
+| `IMAGE_TAG` | GHCR image version used by Compose, default `v0.1.2` |
 | `MEDIA_HOST_PATH` | Host media directory mounted by Compose, default `/mnt/media` |
 | `MEDIA_CONTAINER_PATH` | Read-only media path visible inside the container, default `/media` |
 | `DATABASE_URL` | SQLite path, default `./data/app.db` |
@@ -62,7 +62,7 @@ Copy `.env.example` to `.env` and set the required values. The application loads
 | `OIDC_ISSUER_URL` | Authentik provider issuer URL |
 | `OIDC_CLIENT_ID` | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | OIDC client secret |
-| `OIDC_REDIRECT_URI` | Exact callback URL, normally `https://host/auth/callback` |
+| `OIDC_REDIRECT_URI` | Exact HTTP or HTTPS callback URL used by the deployment |
 | `TMDB_API_KEY` | TMDB v3 API key |
 | `AI_ENABLED` | Enables AI candidate selection when set to `true` |
 | `OPENAI_BASE_URL` | OpenAI-compatible API root ending in `/v1` |
@@ -103,7 +103,7 @@ npm run db:migrate
 
 ## Docker Deployment
 
-1. Create `.env` and use production HTTPS URLs.
+1. Create `.env` and set public URLs to the HTTP or HTTPS addresses clients will use.
 2. Set `MEDIA_HOST_PATH` and `MEDIA_CONTAINER_PATH` in `.env`.
 3. Ensure the Docker daemon can create or access `./data`; the container entrypoint initializes its ownership on first startup.
 4. Start the application.
@@ -114,7 +114,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Compose pulls `ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG}` and defaults to the pinned `v0.1.1` release. Set `IMAGE_TAG=latest` only when automatic feature updates are preferred over a fixed release. The published image supports `linux/amd64` and `linux/arm64` and includes SBOM and provenance attestations.
+Compose pulls `ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG}` and defaults to the pinned `v0.1.2` release. Set `IMAGE_TAG=latest` only when automatic feature updates are preferred over a fixed release. The published image supports `linux/amd64` and `linux/arm64` and includes SBOM and provenance attestations.
 
 Compose keeps the application port inside the container at `7000` and publishes it as `HOST_PORT`. It also overrides `DATABASE_URL` with the unambiguous container path `/app/data/app.db`, backed by the `./data:/app/data` volume. For example, this local macOS configuration avoids the AirPlay port conflict:
 
@@ -131,7 +131,7 @@ Production is the default Compose mode and requires OIDC. For local-only Docker 
 The release image can also be pulled directly:
 
 ```bash
-docker pull ghcr.io/rasooll/stremio-personal-library:v0.1.1
+docker pull ghcr.io/rasooll/stremio-personal-library:v0.1.2
 ```
 
 Runtime secrets are never embedded in the image. Supply each deployment's unique `.env` values through Compose or `docker run --env-file .env`.
@@ -147,7 +147,7 @@ MEDIA_CONTAINER_PATH=/media
 
 a host file at `/mnt/media/movies/Example.mkv` is configured with a local library path such as `/media/movies`. The host and container paths do not need to match. Existing database library paths must start with `MEDIA_CONTAINER_PATH`; using the same host and container path is also valid.
 
-Terminate TLS at a reverse proxy and forward the original protocol. Express trusts one proxy hop so secure session cookies work behind that proxy. The public Stremio URL must use HTTPS except for localhost development.
+HTTP and HTTPS deployments are both supported, including production deployments on a trusted local network. `PUBLIC_ADDON_URL` and `OIDC_REDIRECT_URI` must use the exact scheme and address visible to clients. Session cookies use `Secure` only when `PUBLIC_ADDON_URL` uses HTTPS.
 
 To build locally instead of using GHCR:
 
@@ -158,14 +158,14 @@ docker build -t stremio-personal-library:local .
 ## Authentik OIDC Setup
 
 1. In Authentik, create an OAuth2/OpenID Provider using Authorization Code flow.
-2. Set the redirect URI to the exact value of `OIDC_REDIRECT_URI`, for example `https://stremio.example.com/auth/callback`.
+2. Set the redirect URI to the exact value of `OIDC_REDIRECT_URI`, for example `http://media-server.local:7000/auth/callback` or `https://stremio.example.com/auth/callback`.
 3. Use a confidential client and record its client ID and secret.
 4. Ensure the `openid`, `profile`, and `email` scopes are available.
 5. Create an Authentik Application using that provider and grant access to the intended administrator.
 6. Set `OIDC_ISSUER_URL` to the provider issuer shown by Authentik. It commonly resembles `https://auth.example.com/application/o/stremio-library/`.
 7. Set the client ID, client secret, callback URL, and a strong `SESSION_SECRET`, then restart the application.
 
-The server uses discovery, Authorization Code flow, PKCE, state, nonce, validated ID-token claims, server-side sessions, and `HttpOnly`, `SameSite=Lax` cookies. Session cookies are `Secure` whenever `PUBLIC_ADDON_URL` uses HTTPS. Production HTTP is rejected except for loopback-only testing. Access tokens are not stored in browser storage, and callback query parameters are omitted from request logs.
+The server uses discovery, Authorization Code flow, PKCE, state, nonce, validated ID-token claims, server-side sessions, and `HttpOnly`, `SameSite=Lax` cookies. Session cookies are `Secure` whenever `PUBLIC_ADDON_URL` uses HTTPS and remain compatible with plain HTTP deployments otherwise. Access tokens are not stored in browser storage, and callback query parameters are omitted from request logs.
 
 ## TMDB and AI Matching
 
@@ -262,7 +262,7 @@ Alternatively stop the application and copy `app.db` together with any `app.db-w
 
 ## Troubleshooting
 
-- **Admin redirects repeatedly:** verify issuer, exact callback URI, reverse-proxy HTTPS headers, and Authentik application access.
+- **Admin redirects repeatedly:** verify the issuer, exact callback URI and scheme, cookie acceptance, and Authentik application access.
 - **Library path does not exist:** use the path visible inside the process/container, and check mount permissions.
 - **Streams return 404:** verify the public base URL and that the external web server mirrors the library's relative paths.
 - **Playback cannot seek:** enable byte-range support on the external media web server.

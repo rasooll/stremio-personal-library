@@ -15,7 +15,7 @@ describe('admin authentication', () => {
     const base = { DATABASE_URL: ':memory:', SESSION_SECRET: '12345678901234567890123456789012', OIDC_ISSUER_URL: 'https://auth.example/issuer', OIDC_CLIENT_ID: 'client', OIDC_CLIENT_SECRET: 'secret', OIDC_REDIRECT_URI: 'https://app.example/auth/callback' };
     expect(loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'https://app.example' }).secureCookies).toBe(true);
     expect(loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'http://localhost:7001', OIDC_REDIRECT_URI: 'http://localhost:7001/auth/callback' }).secureCookies).toBe(false);
-    expect(() => loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'http://app.example' })).toThrow('PUBLIC_ADDON_URL must use HTTPS');
+    expect(loadConfig({ ...base, NODE_ENV: 'production', PUBLIC_ADDON_URL: 'http://app.example', OIDC_REDIRECT_URI: 'http://app.example/auth/callback' }).secureCookies).toBe(false);
   });
 
   it('rejects documented placeholder session secrets in production', () => {
