@@ -50,6 +50,10 @@ Copy `.env.example` to `.env` and set the required values. The application loads
 | --- | --- |
 | `NODE_ENV` | `development`, `test`, or `production` |
 | `PORT` | Express port, default `7000` |
+| `HOST_PORT` | Host port published by Docker Compose, default `7000` |
+| `DOCKER_NODE_ENV` | Container mode used by Compose, default `production` |
+| `MEDIA_HOST_PATH` | Host media directory mounted by Compose, default `/mnt/media` |
+| `MEDIA_CONTAINER_PATH` | Read-only media path visible inside the container, default `/media` |
 | `DATABASE_URL` | SQLite path, default `./data/app.db` |
 | `PUBLIC_ADDON_URL` | Public origin of this application, without `/manifest.json` |
 | `ADMIN_ORIGIN` | Vite Admin UI origin in development, default `http://localhost:5173` |
@@ -99,7 +103,7 @@ npm run db:migrate
 ## Docker Deployment
 
 1. Create `.env` and use production HTTPS URLs.
-2. Edit the read-only media mount in `docker-compose.yml`.
+2. Set `MEDIA_HOST_PATH` and `MEDIA_CONTAINER_PATH` in `.env`.
 3. Ensure `./data` is writable by UID/GID `1000`, used by the container's `node` user.
 4. Start the application.
 
@@ -108,13 +112,26 @@ mkdir -p data
 docker compose up -d --build
 ```
 
-The path entered in the Admin UI is the path visible **inside the container**. With this mount:
+Compose keeps the application port inside the container at `7000` and publishes it as `HOST_PORT`. It also overrides `DATABASE_URL` with the unambiguous container path `/app/data/app.db`, backed by the `./data:/app/data` volume. For example, this local macOS configuration avoids the AirPlay port conflict:
 
-```yaml
-- /mnt/media:/media:ro
+```env
+HOST_PORT=7001
+MEDIA_HOST_PATH=/Volumes/Media
+MEDIA_CONTAINER_PATH=/Volumes/Media
+PUBLIC_ADDON_URL=http://localhost:7001
+OIDC_REDIRECT_URI=http://localhost:7001/auth/callback
 ```
 
-a host file at `/mnt/media/movies/Example.mkv` is configured with a local library path such as `/media/movies`. The host and container paths do not need to match.
+Production is the default Compose mode and requires OIDC. For local-only Docker testing without OIDC, set `DOCKER_NODE_ENV=development`; do not expose that development deployment to an untrusted network.
+
+The path entered in the Admin UI is the path visible **inside the container**. With these values:
+
+```env
+MEDIA_HOST_PATH=/mnt/media
+MEDIA_CONTAINER_PATH=/media
+```
+
+a host file at `/mnt/media/movies/Example.mkv` is configured with a local library path such as `/media/movies`. The host and container paths do not need to match. Existing database library paths must start with `MEDIA_CONTAINER_PATH`; using the same host and container path is also valid.
 
 Terminate TLS at a reverse proxy and forward the original protocol. Express trusts one proxy hop so secure session cookies work behind that proxy. The public Stremio URL must use HTTPS except for localhost development.
 

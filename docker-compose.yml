@@ -4,12 +4,14 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${DOCKER_NODE_ENV:-production}
+      PORT: 7000
+      DATABASE_URL: /app/data/app.db
     ports:
-      - "7000:7000"
+      - "${HOST_PORT:-7000}:7000"
     volumes:
       - ./data:/app/data
-      - /mnt/media:/media:ro
+      - ${MEDIA_HOST_PATH:-/mnt/media}:${MEDIA_CONTAINER_PATH:-/media}:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:7000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
