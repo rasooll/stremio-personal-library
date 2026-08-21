@@ -9,7 +9,7 @@ COPY admin ./admin
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim AS runtime
-ENV NODE_ENV=production
+ENV NODE_ENV=production PUID=1000 PGID=1000
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/package.json /app/package-lock.json ./
@@ -19,6 +19,6 @@ COPY docker-entrypoint.sh /usr/local/bin/stremio-entrypoint
 RUN chmod +x /usr/local/bin/stremio-entrypoint && mkdir -p /app/data && chown -R node:node /app
 EXPOSE 7000
 VOLUME ["/app/data"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD gosu node node -e "fetch('http://localhost:7000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD gosu "${PUID}:${PGID}" node -e "fetch('http://localhost:7000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 ENTRYPOINT ["stremio-entrypoint"]
 CMD ["node", "dist/server/index.js"]

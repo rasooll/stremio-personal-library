@@ -52,7 +52,9 @@ Copy `.env.example` to `.env` and set the required values. The application loads
 | `PORT` | Express port, default `7000` |
 | `HOST_PORT` | Host port published by Docker Compose, default `7000` |
 | `DOCKER_NODE_ENV` | Container mode used by Compose, default `production` |
-| `IMAGE_TAG` | GHCR image version used by Compose, default `v0.1.2` |
+| `IMAGE_TAG` | GHCR image version used by Compose, default `v0.1.3` |
+| `PUID` | Numeric UID used by the application process, default `1000` |
+| `PGID` | Numeric GID used by the application process, default `1000` |
 | `MEDIA_HOST_PATH` | Host media directory mounted by Compose, default `/mnt/media` |
 | `MEDIA_CONTAINER_PATH` | Read-only media path visible inside the container, default `/media` |
 | `DATABASE_URL` | SQLite path, default `./data/app.db` |
@@ -114,7 +116,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Compose pulls `ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG}` and defaults to the pinned `v0.1.2` release. Set `IMAGE_TAG=latest` only when automatic feature updates are preferred over a fixed release. The published image supports `linux/amd64` and `linux/arm64` and includes SBOM and provenance attestations.
+Compose pulls `ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG}` and defaults to the pinned `v0.1.3` release. Set `IMAGE_TAG=latest` only when automatic feature updates are preferred over a fixed release. The published image supports `linux/amd64` and `linux/arm64` and includes SBOM and provenance attestations.
 
 Compose keeps the application port inside the container at `7000` and publishes it as `HOST_PORT`. It also overrides `DATABASE_URL` with the unambiguous container path `/app/data/app.db`, backed by the `./data:/app/data` volume. For example, this local macOS configuration avoids the AirPlay port conflict:
 
@@ -131,12 +133,28 @@ Production is the default Compose mode and requires OIDC. For local-only Docker 
 The release image can also be pulled directly:
 
 ```bash
-docker pull ghcr.io/rasooll/stremio-personal-library:v0.1.2
+docker pull ghcr.io/rasooll/stremio-personal-library:v0.1.3
 ```
 
 Runtime secrets are never embedded in the image. Supply each deployment's unique `.env` values through Compose or `docker run --env-file .env`.
 
-On startup, the container creates `/app/data` when needed, fixes only that volume's ownership, and then drops privileges to the unprivileged `node` user before starting the application. This allows SQLite to create its database on a fresh bind mount without running the application as root.
+On startup, the container creates `/app/data` when needed, fixes only that volume's ownership, and then drops privileges to the numeric `PUID:PGID` identity before starting the application. This allows SQLite to create its database on a fresh bind mount without running the application as root. Set `PUID` and `PGID` to IDs that can read the mounted media directories.
+
+Unraid commonly uses a different owner for media files. Inspect a library and configure matching IDs before starting Compose:
+
+```bash
+stat -c '%u:%g %A %n' /mnt/user/Media/Series
+stat -c '%u:%g %A %n' /mnt/user/Media/Series/Money-Heist
+```
+
+For a typical Unraid `nobody:users` media owner, the values are often:
+
+```env
+PUID=99
+PGID=100
+```
+
+Use the IDs reported by `stat` rather than assuming these defaults. A directory must grant both read and execute permission to the configured identity. If one nested directory remains inaccessible, the scanner records that path as an error, skips it safely, continues scanning other directories, and does not mark previously known files under that path as missing.
 
 The path entered in the Admin UI is the path visible **inside the container**. With these values:
 
@@ -264,6 +282,7 @@ Alternatively stop the application and copy `app.db` together with any `app.db-w
 
 - **Admin redirects repeatedly:** verify the issuer, exact callback URI and scheme, cookie acceptance, and Authentik application access.
 - **Library path does not exist:** use the path visible inside the process/container, and check mount permissions.
+- **A series scan reports `EACCES`:** compare the directory owner from `stat -c '%u:%g %A' PATH` with `PUID:PGID`, then correct the IDs or host permissions. Read-only Docker mounts prevent application writes but do not bypass host read permissions.
 - **Streams return 404:** verify the public base URL and that the external web server mirrors the library's relative paths.
 - **Playback cannot seek:** enable byte-range support on the external media web server.
 - **Everything is unresolved:** configure `TMDB_API_KEY`, inspect parsed fields in **Unresolved**, and verify filename/folder naming.

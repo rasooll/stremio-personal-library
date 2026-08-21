@@ -1,6 +1,6 @@
 {
   "name": "stremio-personal-library",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A self-hosted Stremio add-on for personal movie, series, and subtitle libraries.",
   "license": "MIT",
   "keywords": ["stremio", "stremio-addon", "self-hosted", "media-library"],

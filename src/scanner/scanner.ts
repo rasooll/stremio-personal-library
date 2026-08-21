@@ -9,6 +9,8 @@ import { TmdbClient } from '../metadata/tmdb.js';
 import { AiResolver } from '../ai/resolver.js';
 
 interface DiscoveredFile { relativePath: string; extension: string; fileType: 'video' | 'subtitle'; size: number; mtimeMs: number; fingerprint: string }
+interface DiscoveryFailure { relativePath: string; error: unknown }
+interface DiscoveryResult { files: DiscoveredFile[]; failures: DiscoveryFailure[] }
 
 export interface ScanCounters {
   discovered: number; analyzed: number; new: number; changed: number; skipped: number; matched: number;
@@ -30,7 +32,12 @@ export async function scanLibrary(db: Knex, library: LibraryRow, tmdb: TmdbClien
   const root = await realpath(library.local_path);
   const rootStats = await stat(root);
   if (!rootStats.isDirectory()) throw new Error('Library path is not a directory');
-  const discovered = await discover(root, root, library.id);
+  const discovery = await discover(root, root, library.id, true);
+  const discovered = discovery.files;
+  for (const failure of discovery.failures) {
+    currentPath = failure.relativePath;
+    recordError(failure.error);
+  }
   counters.discovered = discovered.length;
   const known = new Map((await db<FileRow>('files').where({ library_id: library.id })).map((file) => [file.relative_path, file]));
   const activeVideos = new Map<string, { file: FileRow; parsed: ReturnType<typeof parseMediaPath> }>();
@@ -80,7 +87,8 @@ export async function scanLibrary(db: Knex, library: LibraryRow, tmdb: TmdbClien
   }
 
   const seen = new Set(discovered.map((item) => item.relativePath));
-  const missingIds = [...known.values()].filter((file) => !seen.has(file.relative_path) && file.status !== 'missing').map((file) => file.id);
+  const protectedPaths = discovery.failures.map((failure) => failure.relativePath);
+  const missingIds = [...known.values()].filter((file) => !seen.has(file.relative_path) && file.status !== 'missing' && !protectedPaths.some((blocked) => file.relative_path === blocked || file.relative_path.startsWith(`${blocked}/`))).map((file) => file.id);
   if (missingIds.length) await db('files').whereIn('id', missingIds).update({ status: 'missing', updated_at: scanStarted });
   counters.missing = missingIds.length;
   counters.tmdbRequest = tmdb.requestCount;
@@ -102,22 +110,36 @@ async function syncSubtitleMapping(db: Knex, fileId: number, videoMapping: any, 
   if (extras.length) await db('file_mapping_episodes').insert(extras.map((extra) => ({ mapping_id: mapping.id, episode: extra.episode })));
 }
 
-async function discover(root: string, directory: string, libraryId: number): Promise<DiscoveredFile[]> {
-  const result: DiscoveredFile[] = [];
-  const handle = await opendir(directory);
+async function discover(root: string, directory: string, libraryId: number, isRoot = false): Promise<DiscoveryResult> {
+  const result: DiscoveryResult = { files: [], failures: [] };
+  let handle;
+  try {
+    handle = await opendir(directory);
+  } catch (error) {
+    if (isRoot) throw error;
+    result.failures.push({ relativePath: path.relative(root, directory).split(path.sep).join('/'), error });
+    return result;
+  }
   for await (const entry of handle) {
     if (entry.isSymbolicLink()) continue;
     const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) result.push(...await discover(root, absolute, libraryId));
-    else if (entry.isFile()) {
+    if (entry.isDirectory()) {
+      const nested = await discover(root, absolute, libraryId);
+      result.files.push(...nested.files);
+      result.failures.push(...nested.failures);
+    } else if (entry.isFile()) {
       const extension = path.extname(entry.name).toLowerCase();
       const fileType = VIDEO_EXTENSIONS.has(extension) ? 'video' : SUBTITLE_EXTENSIONS.has(extension) ? 'subtitle' : null;
       if (!fileType) continue;
-      const info = await stat(absolute);
       const relativePath = path.relative(root, absolute).split(path.sep).join('/');
       if (relativePath.startsWith('../') || path.isAbsolute(relativePath)) continue;
-      const fingerprint = createHash('sha256').update(`${libraryId}\0${relativePath}\0${info.size}\0${info.mtimeMs}`).digest('hex');
-      result.push({ relativePath, extension, fileType, size: info.size, mtimeMs: info.mtimeMs, fingerprint });
+      try {
+        const info = await stat(absolute);
+        const fingerprint = createHash('sha256').update(`${libraryId}\0${relativePath}\0${info.size}\0${info.mtimeMs}`).digest('hex');
+        result.files.push({ relativePath, extension, fileType, size: info.size, mtimeMs: info.mtimeMs, fingerprint });
+      } catch (error) {
+        result.failures.push({ relativePath, error });
+      }
     }
   }
   return result;

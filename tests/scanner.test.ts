@@ -1,4 +1,4 @@
-import { mkdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Knex } from 'knex';
@@ -78,5 +78,24 @@ describe('incremental scanner', () => {
     const scan = await scanLibrary(db, library, dependencies().tmdb, dependencies().ai);
     expect(scan).toMatchObject({ analyzed: 0, skipped: 2, tmdbRequest: 0, aiRequest: 0 });
     expect((await db('file_mappings').where({ file_id: subtitle.id }).first()).media_id).toBe(newMedia);
+  });
+
+  it.skipIf(typeof process.getuid === 'function' && process.getuid() === 0)('continues past inaccessible directories without marking their known files missing', async () => {
+    const available = path.join(root, 'Available');
+    const blocked = path.join(root, 'Blocked');
+    await mkdir(available); await mkdir(blocked);
+    await writeFile(path.join(available, 'Visible.2024.mkv'), 'video');
+    await writeFile(path.join(blocked, 'Known.2024.mkv'), 'video');
+    await scanLibrary(db, library, dependencies().tmdb, dependencies().ai);
+
+    await chmod(blocked, 0o000);
+    try {
+      const scan = await scanLibrary(db, library, dependencies().tmdb, dependencies().ai);
+      expect(scan).toMatchObject({ discovered: 1, skipped: 1, error: 1, missing: 0 });
+      expect(scan.errors[0]).toContain('Blocked');
+      expect((await db('files').where({ relative_path: 'Blocked/Known.2024.mkv' }).first()).status).toBe('unresolved');
+    } finally {
+      await chmod(blocked, 0o755);
+    }
   });
 });
