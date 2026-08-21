@@ -52,7 +52,7 @@ Copy `.env.example` to `.env` and set the required values. The application loads
 | `PORT` | Express port, default `7000` |
 | `HOST_PORT` | Host port published by Docker Compose, default `7000` |
 | `DOCKER_NODE_ENV` | Container mode used by Compose, default `production` |
-| `IMAGE_TAG` | GHCR image version used by Compose, default `v0.1.0` |
+| `IMAGE_TAG` | GHCR image version used by Compose, default `v0.1.1` |
 | `MEDIA_HOST_PATH` | Host media directory mounted by Compose, default `/mnt/media` |
 | `MEDIA_CONTAINER_PATH` | Read-only media path visible inside the container, default `/media` |
 | `DATABASE_URL` | SQLite path, default `./data/app.db` |
@@ -105,7 +105,7 @@ npm run db:migrate
 
 1. Create `.env` and use production HTTPS URLs.
 2. Set `MEDIA_HOST_PATH` and `MEDIA_CONTAINER_PATH` in `.env`.
-3. Ensure `./data` is writable by UID/GID `1000`, used by the container's `node` user.
+3. Ensure the Docker daemon can create or access `./data`; the container entrypoint initializes its ownership on first startup.
 4. Start the application.
 
 ```bash
@@ -114,7 +114,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Compose pulls `ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG}` and defaults to the pinned `v0.1.0` release. Set `IMAGE_TAG=latest` only when automatic feature updates are preferred over a fixed release. The published image supports `linux/amd64` and `linux/arm64` and includes SBOM and provenance attestations.
+Compose pulls `ghcr.io/rasooll/stremio-personal-library:${IMAGE_TAG}` and defaults to the pinned `v0.1.1` release. Set `IMAGE_TAG=latest` only when automatic feature updates are preferred over a fixed release. The published image supports `linux/amd64` and `linux/arm64` and includes SBOM and provenance attestations.
 
 Compose keeps the application port inside the container at `7000` and publishes it as `HOST_PORT`. It also overrides `DATABASE_URL` with the unambiguous container path `/app/data/app.db`, backed by the `./data:/app/data` volume. For example, this local macOS configuration avoids the AirPlay port conflict:
 
@@ -131,10 +131,12 @@ Production is the default Compose mode and requires OIDC. For local-only Docker 
 The release image can also be pulled directly:
 
 ```bash
-docker pull ghcr.io/rasooll/stremio-personal-library:v0.1.0
+docker pull ghcr.io/rasooll/stremio-personal-library:v0.1.1
 ```
 
 Runtime secrets are never embedded in the image. Supply each deployment's unique `.env` values through Compose or `docker run --env-file .env`.
+
+On startup, the container creates `/app/data` when needed, fixes only that volume's ownership, and then drops privileges to the unprivileged `node` user before starting the application. This allows SQLite to create its database on a fresh bind mount without running the application as root.
 
 The path entered in the Admin UI is the path visible **inside the container**. With these values:
 
